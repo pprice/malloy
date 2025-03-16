@@ -13,6 +13,8 @@ import {
 
 import SqliteDatabase, {type ColumnDefinition} from 'better-sqlite3';
 
+import semvar from 'semver';
+
 type PragmaTableInfo = {
   cid: number;
   name: string;
@@ -28,6 +30,8 @@ interface SqliteConnectionOptions {
   fileMustExist?: boolean;
 }
 
+const SQLITE_MIN_VERSION = new semvar.SemVer('3.8.3');
+
 export class SqliteConnection extends BaseConnection {
   public name: string;
   private db: SqliteDatabase.Database;
@@ -42,6 +46,31 @@ export class SqliteConnection extends BaseConnection {
       readonly: !!options.readonly || false,
       fileMustExist: !!options.fileMustExist || false,
     });
+
+    this.validateMinimumVersion();
+  }
+
+  private validateMinimumVersion(): void {
+    const version_result = this.db
+      .prepare<unknown[], {version: string}>(
+        'SELECT sqlite_version() as version'
+      )
+      .get();
+
+
+    const version_string = version_result?.version;
+
+    if (!version_string) {
+      throw new Error(
+        `Failed to get sqlite version; got ${JSON.stringify(version_result)}`
+      );
+    }
+
+    if (SQLITE_MIN_VERSION.compare(version_string) === 1) {
+      throw new Error(
+        `Database is not at least version ${SQLITE_MIN_VERSION} but got ${version_result}`
+      );
+    }
   }
 
   public async test(): Promise<void> {

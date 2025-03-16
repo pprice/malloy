@@ -23,9 +23,11 @@
   },
   "dependencies": {
     "@malloydata/malloy": "^0.0.244",
-    "better-sqlite3": "^11.9.0"
+    "better-sqlite3": "^11.9.0",
+    "semver": "^7.7.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12"
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/semver": "^7.5.8"
   }
 }
