@@ -24,6 +24,9 @@
       "path": "../packages/malloy-db-snowflake"
     },
     {
+      "path": "../packages/malloy-db-sqlite"
+    },
+    {
       "path": "../packages/malloy-db-trino"
     },
     {
