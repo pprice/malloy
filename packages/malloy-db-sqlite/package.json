@@ -22,6 +22,10 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@malloydata/malloy": "^0.0.244"
+    "@malloydata/malloy": "^0.0.244",
+    "better-sqlite3": "^11.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12"
   }
 }

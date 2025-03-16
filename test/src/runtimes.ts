@@ -48,6 +48,7 @@ import {
   MySQLExecutor,
 } from '@malloydata/db-mysql/src/mysql_connection';
 import {EventEmitter} from 'events';
+import { SqliteConnection } from '../../packages/malloy-db-sqlite/src/sqlite_connection';
 
 export class SnowflakeTestConnection extends SnowflakeConnection {
   public async runSQL(
@@ -235,6 +236,12 @@ export function runtimeFor(dbName: string): SingleConnectionRuntime {
           TrinoExecutor.getConnectionOptionsFromEnv(dbName) // they share configs.
         );
         break;
+      case 'sqlite':
+        connection = new SqliteConnection(dbName, {
+          dbPath: 'test/data/sqlite/test.db',
+          fileMustExist: false,
+        });
+        break;
       default:
         throw new Error(`Unknown runtime "${dbName}`);
     }
@@ -265,6 +272,7 @@ export const allDatabases = [
   'duckdb',
   'duckdb_wasm',
   'snowflake',
+  'sqlite',
   'trino',
   'mysql',
 ];

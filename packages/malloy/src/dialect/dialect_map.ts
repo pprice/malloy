@@ -28,13 +28,17 @@ import {SnowflakeDialect} from './snowflake';
 import {StandardSQLDialect} from './standardsql';
 import {PrestoDialect, TrinoDialect} from './trino';
 import {MySQLDialect} from './mysql';
+import {SqliteDialect} from './sqlite';
 
 const dialectMap = new Map<string, Dialect>();
 
 export function getDialect(name: string): Dialect {
   const d = dialectMap.get(name);
   if (d === undefined) {
-    throw new Error(`Unknown Dialect ${name}`);
+    const knownDialects = [...dialectMap.keys()];
+    throw new Error(
+      `Unknown Dialect ${name} known dialects are ${knownDialects}`
+    );
   }
   return d;
 }
@@ -54,3 +58,4 @@ registerDialect(new SnowflakeDialect());
 registerDialect(new TrinoDialect());
 registerDialect(new PrestoDialect());
 registerDialect(new MySQLDialect());
+registerDialect(new SqliteDialect());
