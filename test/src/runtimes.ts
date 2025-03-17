@@ -43,12 +43,12 @@ import {PooledPostgresConnection} from '@malloydata/db-postgres';
 import {TrinoConnection, TrinoExecutor} from '@malloydata/db-trino';
 import {SnowflakeExecutor} from '@malloydata/db-snowflake/src/snowflake_executor';
 import {PrestoConnection} from '@malloydata/db-trino/src/trino_connection';
+import {SqliteConnection} from '@malloydata/db-sqlite';
 import {
   MySQLConnection,
   MySQLExecutor,
 } from '@malloydata/db-mysql/src/mysql_connection';
 import {EventEmitter} from 'events';
-import { SqliteConnection } from '../../packages/malloy-db-sqlite/src/sqlite_connection';
 
 export class SnowflakeTestConnection extends SnowflakeConnection {
   public async runSQL(
@@ -238,7 +238,9 @@ export function runtimeFor(dbName: string): SingleConnectionRuntime {
         break;
       case 'sqlite':
         connection = new SqliteConnection(dbName, {
-          dbPath: 'test/data/sqlite/test.db',
+          attachPaths: {
+            'malloytest': 'test/data/sqlite/sqlite_test.db',
+          },
           fileMustExist: false,
         });
         break;

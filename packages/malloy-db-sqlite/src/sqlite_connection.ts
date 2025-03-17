@@ -25,7 +25,8 @@ type PragmaTableInfo = {
 };
 
 interface SqliteConnectionOptions {
-  dbPath: string;
+  dbPath?: string;
+  attachPaths?: Record<string, string>; // namespace -> path;
   readonly?: boolean;
   fileMustExist?: boolean;
 }
@@ -41,11 +42,18 @@ export class SqliteConnection extends BaseConnection {
     super();
     this.name = name;
 
-    this.db = new SqliteDatabase(options.dbPath, {
+    this.db = new SqliteDatabase(options.dbPath || ':memory:', {
       // These are required to be boolean
       readonly: !!options.readonly || false,
       fileMustExist: !!options.fileMustExist || false,
     });
+
+    // If there are any attach paths, we need to attach them
+    if (options.attachPaths) {
+      for (const [namespace, path] of Object.entries(options.attachPaths)) {
+        this.db.prepare(`ATTACH DATABASE '${path}' AS ${namespace}`).run();
+      }
+    }
 
     this.validateMinimumVersion();
   }
@@ -56,7 +64,6 @@ export class SqliteConnection extends BaseConnection {
         'SELECT sqlite_version() as version'
       )
       .get();
-
 
     const version_string = version_result?.version;
 
@@ -71,6 +78,13 @@ export class SqliteConnection extends BaseConnection {
         `Database is not at least version ${SQLITE_MIN_VERSION} but got ${version_result}`
       );
     }
+  }
+
+  public async getDatabases(): Promise<string[]> {
+    const res = this.db
+      .prepare<unknown[], {name: string}>('PRAGMA database_list')
+      .all();
+    return res.map(row => row.name);
   }
 
   public async test(): Promise<void> {
@@ -97,6 +111,11 @@ export class SqliteConnection extends BaseConnection {
     };
 
     return Promise.resolve(result);
+  }
+
+  public executeSQL(sql: string): void {
+    const statement = this.db.prepare(sql);
+    statement.run();
   }
 
   get dialectName(): string {
