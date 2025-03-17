@@ -31,7 +31,7 @@ interface SqliteConnectionOptions {
   fileMustExist?: boolean;
 }
 
-const SQLITE_MIN_VERSION = new semvar.SemVer('3.8.3');
+const SQLITE_MIN_VERSION = new semvar.SemVer('3.38.0');
 
 export class SqliteConnection extends BaseConnection {
   public name: string;
@@ -56,28 +56,6 @@ export class SqliteConnection extends BaseConnection {
     }
 
     this.validateMinimumVersion();
-  }
-
-  private validateMinimumVersion(): void {
-    const version_result = this.db
-      .prepare<unknown[], {version: string}>(
-        'SELECT sqlite_version() as version'
-      )
-      .get();
-
-    const version_string = version_result?.version;
-
-    if (!version_string) {
-      throw new Error(
-        `Failed to get sqlite version; got ${JSON.stringify(version_result)}`
-      );
-    }
-
-    if (SQLITE_MIN_VERSION.compare(version_string) === 1) {
-      throw new Error(
-        `Database is not at least version ${SQLITE_MIN_VERSION} but got ${version_result}`
-      );
-    }
   }
 
   public async getDatabases(): Promise<string[]> {
@@ -129,13 +107,18 @@ export class SqliteConnection extends BaseConnection {
     // There are two approaches here, we could do a "select * from table limit 1"
     // and then introspect the columns, or we could use the PRAGMA table_info
     // command.
-    const pragmaQuery = `PRAGMA table_info(${this.escapeIdentifier(
-      tableName
-    )})`;
 
-    const schema = this.db
-      .prepare<unknown[], PragmaTableInfo>(pragmaQuery)
-      .all();
+    // In SQLLite it's ${schema}.${table} for the table name, so we need to
+    // split the tablePath into schema and table
+
+    // TODO: Check if we need to actually escape the table name
+    const [maybeSchema, maybeTable] = this.splitOnce(tablePath);
+
+    // Probably need a nicer way to do this...
+    const command = maybeTable
+      ? `PRAGMA ${maybeSchema}.table_info(${maybeTable})`
+      : `PRAGMA table_info(${maybeSchema})`;
+    const schema = this.db.prepare<unknown[], PragmaTableInfo>(command).all();
 
     const structDef: TableSourceDef = {
       type: 'table',
@@ -143,11 +126,15 @@ export class SqliteConnection extends BaseConnection {
       tablePath,
       dialect: this.dialectName,
       connection: this.name,
-      fields: schema.map(c => ({
-        ...this.dialet.sqlTypeToMalloyType(c.type),
-        name: c.name,
-      })),
+      fields: schema.map(c => {
+        return {
+          ...this.dialet.sqlTypeToMalloyType(c.type),
+          name: c.name,
+        };
+      }),
     };
+
+    // console.debug('structDef', structDef);
 
     return structDef;
   }
@@ -169,7 +156,6 @@ export class SqliteConnection extends BaseConnection {
       name: sqlKey(sqlSource.connection, sqlSource.selectStr),
       fields: columns.map(c => this.sqlLiteColumnToField(c)),
     };
-
     return structDef;
   }
 
@@ -187,5 +173,31 @@ export class SqliteConnection extends BaseConnection {
 
   private escapeIdentifier(identifier: string): string {
     return `"${identifier.replace(/"/g, '""')}"`;
+  }
+  private validateMinimumVersion(): void {
+    const version_result = this.db
+      .prepare<unknown[], {version: string}>(
+        'SELECT sqlite_version() as version'
+      )
+      .get();
+
+    const version_string = version_result?.version;
+
+    if (!version_string) {
+      throw new Error(
+        `Failed to get sqlite version; got ${JSON.stringify(version_result)}`
+      );
+    }
+
+    if (SQLITE_MIN_VERSION.compare(version_string) === 1) {
+      throw new Error(
+        `Database is not at least version ${SQLITE_MIN_VERSION} but got ${version_result}`
+      );
+    }
+  }
+
+  private splitOnce(str: string): [string, string] | [string] {
+    const index = str.indexOf('.');
+    return index === -1 ? [str] : [str.slice(0, index), str.slice(index + 1)];
   }
 }
