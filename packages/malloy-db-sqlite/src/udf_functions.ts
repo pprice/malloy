@@ -17,6 +17,7 @@ type Udf = [string, RegistrationOptions | undefined | null, Function];
 const UDF_FUNCTIONS: readonly Udf[] = [
   ['udf_regexp_extract', {deterministic: true}, regexp_extract],
   ['udf_regexp_replace', {deterministic: true}, regexp_replace],
+  ['udf_string_repeat', {deterministic: true}, string_repeat],
 ] as const;
 
 export function registerUserDefinedFunctions(db: Database) {
@@ -34,7 +35,7 @@ export function registerUserDefinedFunctions(db: Database) {
  * @returns The first match of the pattern in the input string, or null if no match is found
  */
 function regexp_extract(input: string | null, pattern: string | null) {
-  if (!input || !pattern) {
+  if (isNullOrUndefined(input) || isNullOrUndefined(pattern)) {
     return null;
   }
 
@@ -60,7 +61,11 @@ function regexp_replace(
   pattern: string | null,
   replacement: string | null
 ) {
-  if (!input || !pattern || !replacement) {
+  if (
+    isNullOrUndefined(input) ||
+    isNullOrUndefined(pattern) ||
+    isNullOrUndefined(replacement)
+  ) {
     return null;
   }
 
@@ -82,6 +87,35 @@ function regexp_replace(
       return index === 0 ? match : groups[index - 1] ?? '';
     });
   });
+}
+
+/**
+ * string_repeat implementation, which repeats a string a specified number of times.
+ *
+ * @param input Input string to repeat
+ * @param count Number of times to repeat the string
+ * @returns The repeated string
+ */
+
+function string_repeat(input: string | null, count: number | null) {
+  if (isNullOrUndefined(input) || isNullOrUndefined(count)) {
+    return null;
+  }
+
+  // Javascript will honor `0`, but not negative numbers
+  if (count < 0) {
+    return null;
+  }
+
+  return input.repeat(count);
+}
+
+/** Helper to infer if T is defined */
+function isNullOrUndefined<T>(
+  value: T | null | undefined
+): value is null | undefined {
+  // TODO: Figureout a varadic way to do this
+  return value === null || value === undefined;
 }
 
 /** Type erasure for functions, keep ts x better-sqlite happy */

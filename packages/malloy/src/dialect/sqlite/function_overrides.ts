@@ -38,4 +38,7 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   round: {
     to_precision: {sql: roundWithNegativePrecisionSQL()},
   },
+  string_repeat: {
+    sql: 'UDF_STRING_REPEAT(${value}, ${count})',
+  },
 };
