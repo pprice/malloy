@@ -45,11 +45,14 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   round: {
     to_precision: {sql: roundWithNegativePrecisionSQL()},
   },
-  string_repeat: {
-    sql: 'UDF_STRING_REPEAT(${value}, ${count})',
-  },
   starts_with: {
     // See ends_with for the reasoning
     sql: "IF(${prefix} IS NULL, 0, IFNULL(GLOB(CONCAT(${prefix}, '*'), ${value}), 0))",
+  },
+  string_repeat: {
+    sql: 'UDF_STRING_REPEAT(${value}, ${count})',
+  },
+  strpos: {
+    sql: 'INSTR(${test_string}, ${search_string})',
   },
 };
