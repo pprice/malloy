@@ -47,6 +47,16 @@ const SCALAR_UDF_FUNCTIONS: readonly ScalarUdf[] = [
 // Aggregate UDFs, basically map reduce
 const AGGREGATE_UDF_FUNCTIONS: readonly AggregateUdf[] = [
   ['udf_set_concat', {varargs: true}, set_concat as AggregatedUdfFactory],
+  [
+    'udf_sum_distinct_pairs',
+    {varargs: true},
+    (() => makeDistinctAgg(v => v.sum)) as AggregatedUdfFactory,
+  ],
+  [
+    'udf_avg_distinct_pairs',
+    {varargs: true},
+    (() => makeDistinctAgg(v => v.sum / v.count)) as AggregatedUdfFactory,
+  ],
 ];
 
 export function registerUserDefinedFunctions(db: Database) {
@@ -243,6 +253,69 @@ function set_concat(): AggergateUdfDefinition<
     },
     result: acc => {
       return Array.from(acc.set).join(acc.sep ?? ',');
+    },
+  };
+}
+
+type DistinctAggState = {
+  values: Map<unknown, Set<number>>;
+  sum: number;
+  count: number;
+  min: number;
+  max: number;
+};
+
+function makeDistinctAgg<T = number>(result: (state: DistinctAggState) => T) {
+  return {
+    start: () => ({
+      values: new Map(),
+      sum: 0,
+      count: 0,
+    }),
+    step: (acc, key, value) => {
+      if (isNullOrUndefined(key) || isNullOrUndefined(value)) {
+        return acc;
+      }
+
+      // If the key is not in the map, add it
+      if (!acc.values.has(key)) {
+        acc.values.set(key, new Set());
+      }
+
+      // If the value is not in the set, add it
+      if (!acc.values.get(key)?.has(value)) {
+        acc.values.get(key)?.add(value);
+        acc.sum += value;
+        acc.count++;
+        acc.min = Math.min(acc.min, value);
+        acc.max = Math.max(acc.max, value);
+      }
+
+      return acc;
+    },
+    inverse: (acc, key, value) => {
+      if (isNullOrUndefined(key) || isNullOrUndefined(value)) {
+        return acc;
+      }
+
+      // If the key is in the map, remove it
+      if (acc.values.has(key)) {
+        const values = acc.values.get(key);
+        if (values?.has(value)) {
+          values.delete(value);
+          acc.sum -= value;
+          acc.count--;
+        }
+      }
+
+      return acc;
+    },
+    result: acc => {
+      if (acc.count === 0) {
+        return null;
+      }
+
+      return result(acc);
     },
   };
 }

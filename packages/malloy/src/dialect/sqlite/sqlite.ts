@@ -173,6 +173,10 @@ export class SqliteDialect extends StandardSQLDialect {
     return `UDF_REGEXP_CONTAINS(${match.kids.expr.sql}, ${match.kids.regex.sql})`;
   }
 
+  sqlSumDistinct(key: string, value: string, funcName: string): string {
+    return `UDF_${funcName}_DISTINCT_PAIRS(${key}, ${value})`;
+  }
+
   sqlStringAggDistinct(
     distinctKey: string,
     valueSQL: string,
