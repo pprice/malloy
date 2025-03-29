@@ -2,7 +2,26 @@ import type {RegistrationOptions, Database} from 'better-sqlite3';
 import * as node_crypto from 'crypto';
 
 // Types
+type ElementOf<T> = T extends Array<infer E> ? E : T;
+type AggergateUdfDefinition<TItem = unknown, TAcc = TItem, TRes = TItem> = {
+  start?: TAcc | (() => TAcc);
+  step: (acc: TAcc, next: ElementOf<TItem>) => TAcc | void;
+  inverse?: ((total: TAcc, dropped: TItem) => TAcc) | undefined;
+  result?: ((total: TAcc) => TRes) | undefined;
+};
+
+type AggregatedUdfFactory = () => AggergateUdfDefinition<
+  unknown,
+  unknown,
+  unknown
+>;
+
 type ScalarUdf = [string, RegistrationOptions | undefined | null, Function];
+type AggregateUdf = [
+  string,
+  RegistrationOptions | undefined | null,
+  AggregatedUdfFactory,
+];
 
 /**
  * User-defined functions (UDFs) for SQLite.
@@ -25,12 +44,22 @@ const SCALAR_UDF_FUNCTIONS: readonly ScalarUdf[] = [
   ['udf_reverse', {deterministic: true}, reverse],
 ] as const;
 
+// Aggregate UDFs, basically map reduce
+const AGGREGATE_UDF_FUNCTIONS: readonly AggregateUdf[] = [
+  ['udf_set_concat', {varargs: true}, set_concat as AggregatedUdfFactory],
+];
+
 export function registerUserDefinedFunctions(db: Database) {
   const registered: string[] = [];
 
   // TODO: Make sure we only do this once...
   for (const [name, options, fn] of SCALAR_UDF_FUNCTIONS) {
     db.function(name, {...options}, typeErase(fn));
+    registered.push(name);
+  }
+
+  for (const [name, options, fn] of AGGREGATE_UDF_FUNCTIONS) {
+    db.aggregate(name, {...options, ...fn()});
     registered.push(name);
   }
 
@@ -170,6 +199,52 @@ function reverse(input: string | null) {
 
   // Unicode safe reverse
   return Array.from(input).reverse().join('');
+}
+
+type SetAggState = {
+  set: Set<unknown>;
+  sep: string | null;
+  set_sep: boolean;
+};
+
+function set_concat(): AggergateUdfDefinition<
+  unknown,
+  SetAggState,
+  string | null
+> {
+  return {
+    start: () => {
+      return {set: new Set(), sep: null, set_sep: false};
+    },
+    step: (acc, next, ...rest: unknown[]) => {
+      // If the first argument is a string, we assume it's a separator
+      // and store it in the state. Sadly only _step_ gets passed
+      // arguments, not start or result...
+      if (
+        !acc.set_sep &&
+        !isNullOrUndefined(rest?.[0]) &&
+        typeof rest[0] === 'string'
+      ) {
+        acc.sep = rest?.[0];
+      }
+
+      if (!isNullOrUndefined(next)) {
+        acc.set.add(next);
+      }
+
+      return acc;
+    },
+    inverse: (acc, dropped) => {
+      if (!isNullOrUndefined(dropped)) {
+        acc.set.delete(dropped);
+      }
+
+      return acc;
+    },
+    result: acc => {
+      return Array.from(acc.set).join(acc.sep ?? ',');
+    },
+  };
 }
 
 /** Helper to infer if T is defined */

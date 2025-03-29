@@ -10,9 +10,6 @@ const string_reverse: DefinitionBlueprint = {
   impl: {sql: 'UDF_REVERSE(CAST(${str} AS VARCHAR))'},
 };
 
-// Sqlite's STRING_AGG is sqlite has slightly odd behavior in that it cannot
-// be called with an order by / distinct if there is a separator, which is
-// required. However GROUP_CONCAT does exactly the same thing, and it works...
 const string_agg: OverloadedDefinitionBlueprint = {
   default_separator: {
     takes: {'value': {dimension: 'string'}},
@@ -35,19 +32,21 @@ const string_agg: OverloadedDefinitionBlueprint = {
   },
 };
 
+// Sqlite doesn't like DISTINCT without an order by for aggregate functions (!)
+// To workaround this we use a udf that does a set aggregate
 const string_agg_distinct: OverloadedDefinitionBlueprint = {
   default_separator: {
     ...string_agg['default_separator'],
     isSymmetric: true,
     impl: {
-      sql: "GROUP_CONCAT(DISTINCT ${value} ${order_by:}, ',')",
+      sql: "UDF_SET_CONCAT(${value} ${order_by:}, ',')",
     },
   },
   with_separator: {
     ...string_agg['with_separator'],
     isSymmetric: true,
     impl: {
-      sql: 'GROUP_CONCAT(DISTINCT ${value} ${order_by:}, ${separator})',
+      sql: 'UDF_SET_CONCAT(${value} ${order_by:}, ${separator})',
     },
   },
 };

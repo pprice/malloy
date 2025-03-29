@@ -7,7 +7,7 @@ import type {
 } from '../../model';
 import {TD} from '../../model';
 import type {QueryInfo} from '../dialect';
-import {Dialect, qtz} from '../dialect';
+import {qtz} from '../dialect';
 import type {DialectFunctionOverloadDef} from '../functions';
 import {expandBlueprintMap, expandOverrideMap} from '../functions';
 import {StandardSQLDialect} from '../standardsql/standardsql';
@@ -76,6 +76,7 @@ export class SqliteDialect extends StandardSQLDialect {
   cantPartitionWindowFunctionsOnExpressions = false;
   supportsCountApprox = false;
   supportsHyperLogLog = false;
+  supportsSumDistinctFunction = true;
 
   constructor() {
     super();
@@ -181,7 +182,7 @@ export class SqliteDialect extends StandardSQLDialect {
     const keyEnd = '__STRING_AGG_KE__';
     const distinctValueSQL = `concat('${keyStart}', ${distinctKey}, '${keyEnd}', ${valueSQL})`;
     return `UDF_REGEXP_REPLACE(
-      GROUP_CONCAT(DISTINCT ${distinctValueSQL}${
+      UDF_SET_CONCAT(${distinctValueSQL}${
         separatorSQL.length > 0 ? ',' + separatorSQL : ''
       }),
       '${keyStart}.*?${keyEnd}',
