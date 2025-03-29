@@ -1,7 +1,4 @@
-// duckdb node bindings do not come with Typescript types, require is required
-// https://github.com/duckdb/duckdb/tree/master/tools/nodejs
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-import {string} from 'yargs';
 import {DuckDBConnection} from '../packages/malloy-db-duckdb/dist';
 import {SqliteConnection} from '../packages/malloy-db-sqlite/dist';
 
@@ -170,6 +167,19 @@ console.log(`Creating database at ${databasePath}`);
         );
         await runSqlite(`ALTER TABLE ${source} DROP COLUMN ${drop_column}`);
       }
+    }
+
+    console.log('Finished updating columns');
+    console.log('Running VACUUM to optimize database');
+    await runSqlite('VACUUM');
+
+    // Printing the current state of the database
+    const tables = await sqlite.runSQL(
+      "SELECT name FROM sqlite_master WHERE type='table'"
+    );
+    console.log('Current tables in the database:');
+    for (const row of tables.rows) {
+      console.log(`- ${row['name']}`);
     }
 
     await sqlite.close();

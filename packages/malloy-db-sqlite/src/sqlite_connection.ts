@@ -33,6 +33,9 @@ interface SqliteConnectionOptions {
 
 const SQLITE_MIN_VERSION = new semvar.SemVer('3.38.0');
 
+// If true, we'll log a bunch of debug information
+const VERBOSE = true;
+
 export class SqliteConnection extends BaseConnection {
   public name: string;
   private db: SqliteDatabase.Database;
@@ -51,6 +54,10 @@ export class SqliteConnection extends BaseConnection {
     // If there are any attach paths, we need to attach them
     if (options.attachPaths) {
       for (const [namespace, path] of Object.entries(options.attachPaths)) {
+        this.verboseLog(() => [
+          `Attaching database ${namespace} at ${path}`,
+          `ATTACH DATABASE '${path}' AS ${namespace}`,
+        ]);
         this.db.prepare(`ATTACH DATABASE '${path}' AS ${namespace}`).run();
       }
     }
@@ -79,6 +86,45 @@ export class SqliteConnection extends BaseConnection {
     sql: string,
     _options?: RunSQLOptions | undefined
   ): Promise<MalloyQueryData> {
+    return this.runRawSQL(sql, _options).catch(e => {
+      this.verboseLog(() => ['Error running SQL', sql, 'Error', e]);
+      this.dumpDatabaseState();
+      throw e;
+    });
+  }
+
+  private dumpDatabaseState(): void {
+    if (!VERBOSE) {
+      return;
+    }
+
+    const databases = this.db
+      .prepare<unknown[], {name: string}>('PRAGMA database_list')
+      .all();
+
+    const tables = databases.map(db => {
+      return this.db
+        .prepare<unknown[], {name: string}>(
+          `SELECT name FROM ${db.name}.sqlite_master WHERE type='table'`
+        )
+        .all()
+        .map(row => row['name']);
+    });
+
+    // Verbose log the db state
+    this.verboseLog(() => [
+      'Databases:\n',
+      ...databases.map(db => db.name),
+      'Tables:\n',
+      tables,
+    ]);
+  }
+
+  private async runRawSQL(
+    sql: string,
+    _options?: RunSQLOptions | undefined
+  ): Promise<MalloyQueryData> {
+    // First generic param is args, second is return type
     // First generic param is args, second is return type
     const statement = this.db.prepare<unknown[], QueryDataRow>(sql);
     const rows = statement.all();
@@ -88,7 +134,7 @@ export class SqliteConnection extends BaseConnection {
       totalRows: rows.length,
     };
 
-    return Promise.resolve(result);
+    return result;
   }
 
   public executeSQL(sql: string): void {
@@ -134,8 +180,6 @@ export class SqliteConnection extends BaseConnection {
       }),
     };
 
-    // console.debug('structDef', structDef);
-
     return structDef;
   }
 
@@ -171,9 +215,6 @@ export class SqliteConnection extends BaseConnection {
     };
   }
 
-  private escapeIdentifier(identifier: string): string {
-    return `"${identifier.replace(/"/g, '""')}"`;
-  }
   private validateMinimumVersion(): void {
     const version_result = this.db
       .prepare<unknown[], {version: string}>(
@@ -199,5 +240,17 @@ export class SqliteConnection extends BaseConnection {
   private splitOnce(str: string): [string, string] | [string] {
     const index = str.indexOf('.');
     return index === -1 ? [str] : [str.slice(0, index), str.slice(index + 1)];
+  }
+
+  private verboseLog(fn: () => unknown[] | unknown): void {
+    if (VERBOSE) {
+      const res = fn();
+      if (Array.isArray(res)) {
+        console.debug(...res);
+        return;
+      }
+
+      console.debug(res);
+    }
   }
 }
