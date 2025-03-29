@@ -1,6 +1,8 @@
 import type {RegistrationOptions, Database} from 'better-sqlite3';
+import * as node_crypto from 'crypto';
 
-type Udf = [string, RegistrationOptions | undefined | null, Function];
+// Types
+type ScalarUdf = [string, RegistrationOptions | undefined | null, Function];
 
 /**
  * User-defined functions (UDFs) for SQLite.
@@ -14,7 +16,9 @@ type Udf = [string, RegistrationOptions | undefined | null, Function];
  * Important: Adding functions to sqlite is straightforward, but ideally if a "pure sql"
  * overide can be used, prefer that (e.g. see round() in function_overrides.ts)
  */
-const UDF_FUNCTIONS: readonly Udf[] = [
+const SCALAR_UDF_FUNCTIONS: readonly ScalarUdf[] = [
+  ['udf_uuid', {deterministic: true}, uuid],
+  ['udf_regexp_contains', {deterministic: true}, regexp_contains],
   ['udf_regexp_extract', {deterministic: true}, regexp_extract],
   ['udf_regexp_replace', {deterministic: true}, regexp_replace],
   ['udf_string_repeat', {deterministic: true}, string_repeat],
@@ -22,10 +26,51 @@ const UDF_FUNCTIONS: readonly Udf[] = [
 ] as const;
 
 export function registerUserDefinedFunctions(db: Database) {
+  const registered: string[] = [];
+
   // TODO: Make sure we only do this once...
-  for (const [name, options, fn] of UDF_FUNCTIONS) {
-    db.function(name, options || {}, typeErase(fn));
+  for (const [name, options, fn] of SCALAR_UDF_FUNCTIONS) {
+    db.function(name, {...options}, typeErase(fn));
+    registered.push(name);
   }
+
+  return registered;
+}
+
+/**
+ * Generate a UUID.
+ */
+function uuid() {
+  if (
+    typeof crypto === 'undefined' ||
+    typeof crypto.randomUUID !== 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+
+  // Node.js crypto module
+  return node_crypto.randomUUID();
+}
+
+/**
+ * regexp_contains implementation, which checks if a string contains a pattern.
+ *
+ * @param input Input string to search
+ * @param pattern  Regular expression pattern to search for
+ * @returns True if the pattern is found in the input string, false otherwise
+ */
+function regexp_contains(
+  input: string | null,
+  pattern: string | null
+): number | null {
+  if (isNullOrUndefined(input) || isNullOrUndefined(pattern)) {
+    // TODO: Validate if this is expected for a boolean expression
+    return null;
+  }
+
+  // We need to escape the pattern for use in a regex
+  const regex = new RegExp(pattern);
+  return regex.test(input) ? 1 : 0;
 }
 
 /**

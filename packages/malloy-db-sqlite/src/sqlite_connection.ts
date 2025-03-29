@@ -67,7 +67,9 @@ export class SqliteConnection extends BaseConnection {
 
     // Register user defined functions; used to squash quirks in the sqlite dialect
     // and to add some extra functionality
-    registerUserDefinedFunctions(this.db);
+    this.verboseLog(() => 'Registering user defined functions...');
+    const registered = registerUserDefinedFunctions(this.db);
+    this.verboseLog(() => ['Registered user defined functions', registered]);
   }
 
   public async getDatabases(): Promise<string[]> {

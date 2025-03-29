@@ -3,6 +3,7 @@ import type {
   Expr,
   LeafAtomicTypeDef,
   AtomicTypeDef,
+  RegexMatchExpr,
 } from '../../model';
 import {TD} from '../../model';
 import type {QueryInfo} from '../dialect';
@@ -164,6 +165,28 @@ export class SqliteDialect extends StandardSQLDialect {
 
   sqlAnyValue(_groupSet: number, fieldName: string): string {
     return `MAX(${fieldName})`;
+  }
+
+  sqlRegexpMatch(match: RegexMatchExpr): string {
+    // SQLite doesn't have a built-in REGEXP function, so, we use a udf...
+    return `UDF_REGEXP_CONTAINS(${match.kids.expr.sql}, ${match.kids.regex.sql})`;
+  }
+
+  sqlStringAggDistinct(
+    distinctKey: string,
+    valueSQL: string,
+    separatorSQL: string
+  ): string {
+    const keyStart = '__STRING_AGG_KS__';
+    const keyEnd = '__STRING_AGG_KE__';
+    const distinctValueSQL = `concat('${keyStart}', ${distinctKey}, '${keyEnd}', ${valueSQL})`;
+    return `UDF_REGEXP_REPLACE(
+      GROUP_CONCAT(DISTINCT ${distinctValueSQL}${
+        separatorSQL.length > 0 ? ',' + separatorSQL : ''
+      }),
+      '${keyStart}.*?${keyEnd}',
+      ''
+    )`;
   }
 
   sqlLiteralTime(qi: QueryInfo, lit: TimeLiteralNode): string {
