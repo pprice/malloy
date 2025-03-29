@@ -26,6 +26,7 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   chr: {
     sql: "IF(${value}, '', CHAR(${value}))",
   },
+  div: {sql: 'FLOOR(${dividend} / ${divisor})'},
   ends_with: {
     // Use GLOB matching for starts with, if sqlite encounters a null
     // input it will resolve to null, but we expect a boolean expression
