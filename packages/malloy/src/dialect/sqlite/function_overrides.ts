@@ -26,6 +26,13 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   chr: {
     sql: "IF(${value}, '', CHAR(${value}))",
   },
+  ends_with: {
+    // Use GLOB matching for starts with, if sqlite encounters a null
+    // input it will resolve to null, but we expect a boolean expression
+    // so return 0 instead, however concat('*', ${suffix}) will return '*'
+    // so another layer of IF is needed to return 0 if the suffix is null
+    sql: "IF(${suffix} IS NULL, 0, IFNULL(GLOB(CONCAT('*', ${suffix}), ${value}), 0))",
+  },
   regexp_extract: {
     sql: 'UDF_REGEXP_EXTRACT(${value}, ${pattern})',
   },
@@ -40,5 +47,9 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   },
   string_repeat: {
     sql: 'UDF_STRING_REPEAT(${value}, ${count})',
+  },
+  starts_with: {
+    // See ends_with for the reasoning
+    sql: "IF(${prefix} IS NULL, 0, IFNULL(GLOB(CONCAT(${prefix}, '*'), ${value}), 0))",
   },
 };
