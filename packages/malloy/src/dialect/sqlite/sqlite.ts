@@ -1,29 +1,11 @@
-import {
-  Sampling,
-  OrderBy,
-  TimeTruncExpr,
-  TimeExtractExpr,
-  MeasureTimeExpr,
-  TimeDeltaExpr,
-  TypecastExpr,
-  RegexMatchExpr,
-  TimeLiteralNode,
-  ArrayLiteralNode,
-  RecordLiteralNode,
-  LeafAtomicTypeDef,
-  AtomicTypeDef,
-  TD,
-  Expr,
-} from '../../model';
-import {
-  Dialect,
-  DialectFieldList,
-  FieldReferenceType,
-  qtz,
-  QueryInfo,
-} from '../dialect';
-import {DialectFunctionOverloadDef, expandOverrideMap} from '../functions';
+import type {TimeLiteralNode, Expr} from '../../model';
+import {TD} from '../../model';
+import type {QueryInfo} from '../dialect';
+import {qtz} from '../dialect';
+import type {DialectFunctionOverloadDef} from '../functions';
+import {expandBlueprintMap, expandOverrideMap} from '../functions';
 import {StandardSQLDialect} from '../standardsql/standardsql';
+import {SQLITE_DIALECT_FUNCTIONS} from './dialect_functions';
 import {SQLITE_MALLOY_STANDARD_OVERLOADS} from './function_overrides';
 
 export class SqliteDialect extends StandardSQLDialect {
@@ -48,6 +30,10 @@ export class SqliteDialect extends StandardSQLDialect {
     [name: string]: DialectFunctionOverloadDef[];
   } {
     return expandOverrideMap(SQLITE_MALLOY_STANDARD_OVERLOADS);
+  }
+
+  getDialectFunctions(): {[name: string]: DialectFunctionOverloadDef[]} {
+    return expandBlueprintMap(SQLITE_DIALECT_FUNCTIONS);
   }
 
   exprToSQL(qi: QueryInfo, df: Expr): string | undefined {

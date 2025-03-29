@@ -18,6 +18,7 @@ const UDF_FUNCTIONS: readonly Udf[] = [
   ['udf_regexp_extract', {deterministic: true}, regexp_extract],
   ['udf_regexp_replace', {deterministic: true}, regexp_replace],
   ['udf_string_repeat', {deterministic: true}, string_repeat],
+  ['udf_reverse', {deterministic: true}, reverse],
 ] as const;
 
 export function registerUserDefinedFunctions(db: Database) {
@@ -108,6 +109,22 @@ function string_repeat(input: string | null, count: number | null) {
   }
 
   return input.repeat(count);
+}
+
+/**
+ * reverse implementation, which reverses a string.
+ *
+ * @param input Input string to reverse
+ * @returns The reversed string
+ */
+
+function reverse(input: string | null) {
+  if (isNullOrUndefined(input)) {
+    return null;
+  }
+
+  // Unicode safe reverse
+  return Array.from(input).reverse().join('');
 }
 
 /** Helper to infer if T is defined */
