@@ -200,7 +200,9 @@ export async function runQuery(runtime: Runtime, querySrc: string) {
 }
 
 export function booleanResult(value: boolean, dbName: string) {
-  if (dbName === 'mysql') {
+  // TODO: This should come from the dialect, or boolean
+  // values should be coerced for boolean expressions
+  if (dbName === 'mysql' || dbName === 'sqlite') {
     return value ? 1 : 0;
   } else {
     return value;
@@ -208,7 +210,7 @@ export function booleanResult(value: boolean, dbName: string) {
 }
 
 export function booleanCode(value: boolean, dbName: string) {
-  if (dbName === 'mysql') {
+  if (dbName === 'mysql' || dbName === 'sqlite') {
     return value ? '1' : '0';
   } else {
     return value ? 'true' : 'false';

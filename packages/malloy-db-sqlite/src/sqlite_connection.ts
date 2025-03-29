@@ -14,6 +14,7 @@ import {
 import SqliteDatabase, {type ColumnDefinition} from 'better-sqlite3';
 
 import semvar from 'semver';
+import {registerUserDefinedFunctions} from './udf_functions';
 
 type PragmaTableInfo = {
   cid: number;
@@ -63,6 +64,10 @@ export class SqliteConnection extends BaseConnection {
     }
 
     this.validateMinimumVersion();
+
+    // Register user defined functions; used to squash quirks in the sqlite dialect
+    // and to add some extra functionality
+    registerUserDefinedFunctions(this.db);
   }
 
   public async getDatabases(): Promise<string[]> {
@@ -128,6 +133,8 @@ export class SqliteConnection extends BaseConnection {
     // First generic param is args, second is return type
     const statement = this.db.prepare<unknown[], QueryDataRow>(sql);
     const rows = statement.all();
+
+    this.verboseLog(() => sql);
 
     const result: MalloyQueryData = {
       rows: rows,

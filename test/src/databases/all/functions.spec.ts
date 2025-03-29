@@ -139,7 +139,7 @@ expressionModels.forEach((x, databaseName) => {
           "concat('cons', true)",
           databaseName === 'postgres'
             ? 'const'
-            : databaseName === 'mysql'
+            : databaseName === 'mysql' || databaseName === 'sqlite'
             ? 'cons1'
             : 'construe',
         ],

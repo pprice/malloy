@@ -13,6 +13,7 @@ import {
   LeafAtomicTypeDef,
   AtomicTypeDef,
   TD,
+  Expr,
 } from '../../model';
 import {
   Dialect,
@@ -21,8 +22,9 @@ import {
   qtz,
   QueryInfo,
 } from '../dialect';
-import {DialectFunctionOverloadDef} from '../functions';
+import {DialectFunctionOverloadDef, expandOverrideMap} from '../functions';
 import {StandardSQLDialect} from '../standardsql/standardsql';
+import {SQLITE_MALLOY_STANDARD_OVERLOADS} from './function_overrides';
 
 export class SqliteDialect extends StandardSQLDialect {
   name = 'sqlite';
@@ -40,6 +42,17 @@ export class SqliteDialect extends StandardSQLDialect {
 
   quoteIdentifier(identifier: string): string {
     return `\`${identifier}\``;
+  }
+
+  getDialectFunctionOverrides(): {
+    [name: string]: DialectFunctionOverloadDef[];
+  } {
+    return expandOverrideMap(SQLITE_MALLOY_STANDARD_OVERLOADS);
+  }
+
+  exprToSQL(qi: QueryInfo, df: Expr): string | undefined {
+    // TODO
+    return super.exprToSQL(qi, df);
   }
 
   quoteTablePath(tablePath: string): string {
