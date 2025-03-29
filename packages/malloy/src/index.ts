@@ -27,6 +27,7 @@ export {
   PostgresDialect,
   SnowflakeDialect,
   MySQLDialect,
+  SqliteDialect,
   registerDialect,
   arg,
   qtz,

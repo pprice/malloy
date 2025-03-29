@@ -34,6 +34,23 @@ export class SqliteDialect extends StandardSQLDialect {
     super();
   }
 
+  sqlMaybeQuoteIdentifier(identifier: string): string {
+    return identifier;
+  }
+
+  quoteIdentifier(identifier: string): string {
+    return `\`${identifier}\``;
+  }
+
+  quoteTablePath(tablePath: string): string {
+    // SQLite doesn't require quoting table paths, but we can do it if needed.
+    const {db, table} = this.splitPath(tablePath);
+
+    return db
+      ? `${this.quoteIdentifier(db)}.${this.quoteIdentifier(table)}`
+      : this.quoteIdentifier(table);
+  }
+
   sqlAnyValue(_groupSet: number, fieldName: string): string {
     return `MAX(${fieldName})`;
   }
@@ -56,5 +73,12 @@ export class SqliteDialect extends StandardSQLDialect {
 
   sqlNowExpr(): string {
     return 'CURRENT_TIMESTAMP';
+  }
+
+  public splitPath(str: string): {db?: string; table: string} {
+    const index = str.indexOf('.');
+    return index === -1
+      ? {table: str}
+      : {db: str.slice(0, index), table: str.slice(index + 1)};
   }
 }

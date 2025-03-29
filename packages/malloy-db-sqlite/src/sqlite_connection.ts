@@ -8,7 +8,7 @@ import {
   type QueryDataRow,
   sqlKey,
   type FieldDef,
-  StandardSQLDialect,
+  SqliteDialect,
 } from '@malloydata/malloy';
 
 import SqliteDatabase, {type ColumnDefinition} from 'better-sqlite3';
@@ -39,7 +39,7 @@ const VERBOSE = true;
 export class SqliteConnection extends BaseConnection {
   public name: string;
   private db: SqliteDatabase.Database;
-  private readonly dialet = new StandardSQLDialect();
+  private readonly dialet = new SqliteDialect();
 
   constructor(name: string, options: SqliteConnectionOptions) {
     super();
@@ -158,12 +158,12 @@ export class SqliteConnection extends BaseConnection {
     // split the tablePath into schema and table
 
     // TODO: Check if we need to actually escape the table name
-    const [maybeSchema, maybeTable] = this.splitOnce(tablePath);
+    const {db, table} = this.dialet.splitPath(tablePath);
 
     // Probably need a nicer way to do this...
-    const command = maybeTable
-      ? `PRAGMA ${maybeSchema}.table_info(${maybeTable})`
-      : `PRAGMA table_info(${maybeSchema})`;
+    const command = db
+      ? `PRAGMA ${db}.table_info(${table})`
+      : `PRAGMA table_info(${table})`;
     const schema = this.db.prepare<unknown[], PragmaTableInfo>(command).all();
 
     const structDef: TableSourceDef = {
@@ -235,11 +235,6 @@ export class SqliteConnection extends BaseConnection {
         `Database is not at least version ${SQLITE_MIN_VERSION} but got ${version_result}`
       );
     }
-  }
-
-  private splitOnce(str: string): [string, string] | [string] {
-    const index = str.indexOf('.');
-    return index === -1 ? [str] : [str.slice(0, index), str.slice(index + 1)];
   }
 
   private verboseLog(fn: () => unknown[] | unknown): void {
