@@ -6,10 +6,18 @@ import type {
   RegexMatchExpr,
   TimeExtractExpr,
   ExtractUnit,
+  Sampling,
+  ArrayLiteralNode,
+  MeasureTimeExpr,
+  OrderBy,
+  RecordLiteralNode,
+  TimeDeltaExpr,
+  TimeTruncExpr,
+  TypecastExpr,
 } from '../../model';
 import {TD} from '../../model';
-import type {QueryInfo} from '../dialect';
-import {qtz} from '../dialect';
+import type {DialectFieldList, FieldReferenceType, QueryInfo} from '../dialect';
+import {Dialect, qtz} from '../dialect';
 import type {DialectFunctionOverloadDef} from '../functions';
 import {expandBlueprintMap, expandOverrideMap} from '../functions';
 import {StandardSQLDialect} from '../standardsql/standardsql';
@@ -95,15 +103,33 @@ const sqliteTimeExtractMap: Record<ExtractUnit, StringMapFn> = {
   },
 };
 
-export class SqliteDialect extends StandardSQLDialect {
+export class SqliteDialect extends Dialect {
   name = 'sqlite';
   defaultNumberType = 'INTEGER';
   defaultDecimalType = 'REAL';
-  experimental = false; // Remove later, but quiet for now.
-  cantPartitionWindowFunctionsOnExpressions = false;
-  supportsCountApprox = false;
-  supportsHyperLogLog = false;
+  udfPrefix = 'UDF_';
+  hasFinalStage = false;
+  divisionIsInteger = false;
   supportsSumDistinctFunction = true;
+  unnestWithNumbers = false;
+  defaultSampling = {enable: false};
+  supportsAggDistinct = false; // TODO
+  supportsCTEinCoorelatedSubQueries = false; // TODO
+  dontUnionIndex = false; // TODO
+  supportsQualify = true; // TODO
+  supportsNesting = true; // TODO
+  cantPartitionWindowFunctionsOnExpressions = false;
+  hasModOperator = true;
+  nestedArrays = false; // TODO
+  supportsHyperLogLog = false;
+  likeEscape = false;
+  supportUnnestArrayAgg = false; // TODO
+  supportsSafeCast = false; // TODO
+
+  experimental = false; // Remove later, but quiet for now.
+  supportsCountApprox = false;
+
+  jsonType = 'JSON'; // Can case to JSONB if needed
 
   constructor() {
     super();
@@ -149,6 +175,10 @@ export class SqliteDialect extends StandardSQLDialect {
         return malloyType.numberType === 'integer' ? 'INTEGER' : 'REAL';
       case 'boolean':
         return 'BOOLEAN';
+      case 'timestamp':
+        return 'DATETIME';
+      case 'date':
+        return 'DATE';
       default:
         return malloyType.type.toUpperCase();
     }
@@ -181,9 +211,9 @@ export class SqliteDialect extends StandardSQLDialect {
       return mappedType;
     }
 
-    console.error(
-      `Unknown SQLite type ${sqlType} (${baseSqlType}) - defaulting to sql native`
-    );
+    // console.error(
+    //   `Unknown SQLite type ${sqlType} (${baseSqlType}) - defaulting to sql native`
+    // );
 
     return {
       type: 'sql native',
@@ -196,7 +226,6 @@ export class SqliteDialect extends StandardSQLDialect {
   }
 
   sqlRegexpMatch(match: RegexMatchExpr): string {
-    // SQLite doesn't have a built-in REGEXP function, so, we use a udf...
     return `UDF_REGEXP_CONTAINS(${match.kids.expr.sql}, ${match.kids.regex.sql})`;
   }
 
@@ -241,6 +270,17 @@ export class SqliteDialect extends StandardSQLDialect {
     return 'CURRENT_TIMESTAMP';
   }
 
+  sqlSelectAliasAsStruct(
+    alias: string,
+    dialectFieldList: DialectFieldList
+  ): string {
+    const args = dialectFieldList.map(
+      f => `'${f.sqlOutputName}', ${alias}.${f.sqlOutputName}`
+    );
+
+    return this.jsonFunc('OBJECT', args);
+  }
+
   sqlTimeExtractExpr(qi: QueryInfo, from: TimeExtractExpr): string {
     // TODO: As SQLite doesn't have a true datetime type, we need to
     // convert the datetime to a string and then extract when needed...
@@ -254,6 +294,140 @@ export class SqliteDialect extends StandardSQLDialect {
     }
 
     return format(extractFrom);
+  }
+
+  sqlAggregateTurtle(
+    groupSet: number,
+    fieldList: DialectFieldList,
+    orderBy: string | undefined,
+    limit: number | undefined
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+  sqlAnyValueTurtle(groupSet: number, fieldList: DialectFieldList): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlAnyValueLastTurtle(
+    name: string,
+    groupSet: number,
+    sqlName: string
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+  sqlCoaleseMeasuresInline(
+    groupSet: number,
+    fieldList: DialectFieldList
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlUnnestAlias(
+    source: string,
+    alias: string,
+    fieldList: DialectFieldList,
+    needDistinctKey: boolean,
+    isArray: boolean,
+    isInNestedPipeline: boolean
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlSumDistinctHashedKey(sqlDistinctKey: string): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlFieldReference(
+    parentAlias: string,
+    parentType: FieldReferenceType,
+    childName: string,
+    _childType: string
+  ): string {
+    const child = this.sqlMaybeQuoteIdentifier(childName);
+    return `${parentAlias}.${child}`;
+  }
+
+  sqlUnnestPipelineHead(
+    isSingleton: boolean,
+    sourceSQLExpression: string,
+    fieldList?: DialectFieldList
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlCreateFunction(id: string, funcText: string): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlCreateFunctionCombineLastStage(
+    lastStageName: string,
+    fieldList: DialectFieldList,
+    orderBy: OrderBy[] | undefined
+  ): string {
+    throw new Error('Method not implemented.');
+  }
+  sqlCreateTableAsSelect(tableName: string, sql: string): string {
+    throw new Error('Method not implemented.');
+  }
+
+  castToString(expression: string): string {
+    return `CAST(${expression} as TEXT)`;
+  }
+
+  concat(...values: string[]): string {
+    return values.join(' || ');
+  }
+
+  sqlTruncExpr(qi: QueryInfo, toTrunc: TimeTruncExpr): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlMeasureTimeExpr(e: MeasureTimeExpr): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlAlterTimeExpr(df: TimeDeltaExpr): string {
+    throw new Error('Method not implemented.');
+  }
+
+  sqlCast(qi: QueryInfo, cast: TypecastExpr): string {
+    const {op, srcTypeDef, dstTypeDef, dstSQLType} = this.sqlCastPrep(cast);
+    //  TODO:  Time handling
+    return cast.e.sql || '';
+  }
+
+  sqlLiteralString(literal: string): string {
+    const noVirgule = literal.replace(/\\/g, '\\\\');
+    return "'" + noVirgule.replace(/'/g, "\\'") + "'";
+  }
+
+  sqlLiteralRegexp(literal: string): string {
+    const noVirgule = literal.replace(/\\/g, '\\\\');
+    return "'" + noVirgule.replace(/'/g, "\\'") + "'";
+  }
+
+  sqlLiteralArray(lit: ArrayLiteralNode): string {
+    return this.jsonFunc(
+      'ARRAY',
+      lit.kids.values.map(v => v.sql)
+    );
+  }
+
+  sqlLiteralRecord(lit: RecordLiteralNode): string {
+    return this.jsonFunc(
+      'OBJECT',
+      Object.entries(lit.kids).map(([key, value]) => {
+        return `${this.sqlLiteralString(key)}, ${value.sql}`;
+      })
+    );
+  }
+
+  validateTypeName(sqlType: string): boolean {
+    return sqlType.match(/^[A-Za-z\s(),<>0-9]*$/) !== null;
+  }
+
+  jsonFunc(func: string, args: (string | undefined)[]): string {
+    return `${this.jsonType}_${func}(${args.filter(Boolean).join(',')})`;
   }
 
   public splitPath(str: string): {db?: string; table: string} {
