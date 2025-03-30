@@ -14,6 +14,14 @@ function roundWithNegativePrecisionSQL() {
   );
 }
 
+function truncWithNegativePrecisionSQL() {
+  // if(p >= 0, 10^p, 1.0 / 10^abs(p))
+  const precision =
+    'IF(${precision} >= 0, POW(10, ${precision}), 1.0 / POW(10, ABS(${precision})))';
+
+  return 'CAST(${value} * (' + precision + ') AS INTEGER) / ' + precision;
+}
+
 export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   ascii: {
     // SQLite doesn't have an ASCII function, but UNICODE is equivalent as it returns the code point of the first character.
@@ -55,6 +63,10 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   },
   round: {
     to_precision: {sql: roundWithNegativePrecisionSQL()},
+  },
+  trunc: {
+    to_integer: {sql: 'CAST(${value} AS INTEGER)'},
+    to_precision: {sql: truncWithNegativePrecisionSQL()},
   },
   starts_with: {
     // See ends_with for the reasoning
