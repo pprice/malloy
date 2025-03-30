@@ -35,17 +35,17 @@ type AggregateUdf = [
  * Important: Adding functions to sqlite is straightforward, but ideally if a "pure sql"
  * overide can be used, prefer that (e.g. see round() in function_overrides.ts)
  */
-const SCALAR_UDF_FUNCTIONS: readonly ScalarUdf[] = [
+const SCALAR_UDF_FUNCTIONS: ScalarUdf[] = [
   ['udf_uuid', {deterministic: true}, uuid],
   ['udf_regexp_contains', {deterministic: true}, regexp_contains],
   ['udf_regexp_extract', {deterministic: true}, regexp_extract],
   ['udf_regexp_replace', {deterministic: true}, regexp_replace],
   ['udf_string_repeat', {deterministic: true}, string_repeat],
   ['udf_reverse', {deterministic: true}, reverse],
-] as const;
+];
 
 // Aggregate UDFs, basically map reduce
-const AGGREGATE_UDF_FUNCTIONS: readonly AggregateUdf[] = [
+const AGGREGATE_UDF_FUNCTIONS: AggregateUdf[] = [
   ['udf_set_concat', {varargs: true}, set_concat as AggregatedUdfFactory],
   [
     'udf_sum_distinct_pairs',
