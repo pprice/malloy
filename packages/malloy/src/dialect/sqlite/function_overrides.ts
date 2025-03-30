@@ -30,6 +30,10 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   least: {
     sql: 'MIN(${...values})',
   },
+  log: {
+    // Base firt, value second
+    sql: 'LOG(${base}, ${value})',
+  },
   greatest: {
     sql: 'MAX(${...values})',
   },
