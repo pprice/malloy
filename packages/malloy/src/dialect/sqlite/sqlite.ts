@@ -4,6 +4,8 @@ import type {
   LeafAtomicTypeDef,
   AtomicTypeDef,
   RegexMatchExpr,
+  TimeExtractExpr,
+  ExtractUnit,
 } from '../../model';
 import {TD} from '../../model';
 import type {QueryInfo} from '../dialect';
@@ -66,6 +68,31 @@ const sqliteToMallyTypes: Record<string, LeafAtomicTypeDef> = {
   'datetime': {type: 'timestamp'},
   'date': {type: 'date'},
   'boolean': {type: 'boolean'},
+};
+
+type StringMapFn = (from: string) => string;
+
+function makeStrfTimeCast(format: string): StringMapFn {
+  return (from: string) => `CAST(strftime('${format}', ${from}) as INTEGER)`;
+}
+
+/**
+ * Timestamp extraction map, malloy unit to strftime
+ */
+const sqliteTimeExtractMap: Record<ExtractUnit, StringMapFn> = {
+  'day': makeStrfTimeCast('%d'),
+  'hour': makeStrfTimeCast('%H'),
+  'minute': makeStrfTimeCast('%M'),
+  'month': makeStrfTimeCast('%m'),
+  'second': makeStrfTimeCast('%S'),
+  'week': makeStrfTimeCast('%W'),
+  'year': makeStrfTimeCast('%Y'),
+  'day_of_week': makeStrfTimeCast('%u'), // ISO 1-7
+  'day_of_year': makeStrfTimeCast('%j'),
+  // Special case, we need to get the month then divide by 3 offset by 1
+  'quarter': (from: string) => {
+    return `((CAST(strftime('%m', ${from}) as INTEGER) - 1) / 3) + 1`;
+  },
 };
 
 export class SqliteDialect extends StandardSQLDialect {
@@ -212,6 +239,21 @@ export class SqliteDialect extends StandardSQLDialect {
 
   sqlNowExpr(): string {
     return 'CURRENT_TIMESTAMP';
+  }
+
+  sqlTimeExtractExpr(qi: QueryInfo, from: TimeExtractExpr): string {
+    // TODO: As SQLite doesn't have a true datetime type, we need to
+    // convert the datetime to a string and then extract when needed...
+    const format = sqliteTimeExtractMap[from.units];
+    const extractFrom = from.e.sql;
+
+    if (!format) {
+      throw new Error(`Unsupported time extract unit ${from.units}`);
+    } else if (!extractFrom) {
+      throw new Error(`Unsupported time extract expression ${from.e}`);
+    }
+
+    return format(extractFrom);
   }
 
   public splitPath(str: string): {db?: string; table: string} {
