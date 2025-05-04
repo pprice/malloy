@@ -32,7 +32,7 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
     sql: 'LENGTH(CAST(${value} as BLOB))',
   },
   chr: {
-    sql: "IF(${value}, '', CHAR(${value}))",
+    sql: "IIF(${value} IS NULL, '', CHAR(${value}))",
   },
   div: {sql: 'FLOOR(${dividend} / ${divisor})'},
   least: {
@@ -45,12 +45,15 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   greatest: {
     sql: 'MAX(${...values})',
   },
+  is_inf: {
+    sql: 'IIF(${value} = 9e999 or ${value} = -9e9999, TRUE, FALSE)',
+  },
   ends_with: {
-    // Use GLOB matching for starts with, if sqlite encounters a null
+    // Use GLOB matching for ends with, if sqlite encounters a null
     // input it will resolve to null, but we expect a boolean expression
     // so return 0 instead, however concat('*', ${suffix}) will return '*'
     // so another layer of IF is needed to return 0 if the suffix is null
-    sql: "IF(${suffix} IS NULL, 0, IFNULL(GLOB(CONCAT('*', ${suffix}), ${value}), 0))",
+    sql: "IIF(${suffix} IS NULL, 0, IFNULL(GLOB(CONCAT('*', ${suffix}), ${value}), 0))",
   },
   regexp_extract: {
     sql: 'UDF_REGEXP_EXTRACT(${value}, ${pattern})',
@@ -70,12 +73,15 @@ export const SQLITE_MALLOY_STANDARD_OVERLOADS: OverrideMap = {
   },
   starts_with: {
     // See ends_with for the reasoning
-    sql: "IF(${prefix} IS NULL, 0, IFNULL(GLOB(CONCAT(${prefix}, '*'), ${value}), 0))",
+    sql: "IIF(${prefix} IS NULL, 0, IFNULL(GLOB(CONCAT(${prefix}, '*'), ${value}), 0))",
   },
   string_repeat: {
     sql: 'UDF_STRING_REPEAT(${value}, ${count})',
   },
   strpos: {
     sql: 'INSTR(${test_string}, ${search_string})',
+  },
+  stddev: {
+    function: 'UDF_STDDEV',
   },
 };

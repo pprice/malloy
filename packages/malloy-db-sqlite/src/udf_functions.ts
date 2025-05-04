@@ -42,6 +42,7 @@ const SCALAR_UDF_FUNCTIONS: ScalarUdf[] = [
   ['udf_regexp_replace', {deterministic: true}, regexp_replace],
   ['udf_string_repeat', {deterministic: true}, string_repeat],
   ['udf_reverse', {deterministic: true}, reverse],
+  ['udf_substring_index', {deterministic: true}, substring_index],
 ];
 
 // Aggregate UDFs, basically map reduce
@@ -57,6 +58,8 @@ const AGGREGATE_UDF_FUNCTIONS: AggregateUdf[] = [
     {varargs: true},
     (() => makeDistinctAgg(v => v.sum / v.count)) as AggregatedUdfFactory,
   ],
+  // Yeah seriously.
+  ['udf_stddev', {varargs: true}, stddev as AggregatedUdfFactory],
 ];
 
 export function registerUserDefinedFunctions(db: Database) {
@@ -81,7 +84,7 @@ export function registerUserDefinedFunctions(db: Database) {
  */
 function uuid() {
   if (
-    typeof crypto === 'undefined' ||
+    typeof crypto !== 'undefined' &&
     typeof crypto.randomUUID !== 'function'
   ) {
     return crypto.randomUUID();
@@ -196,6 +199,42 @@ function string_repeat(input: string | null, count: number | null) {
 }
 
 /**
+ * substring_index implementation, which returns a substring from a string before a specified delimiter.
+ *
+ * @param input Input string to search
+ * @param delimiter Delimiter to search for
+ * @param count Number of times to search for the delimiter
+ * @returns The substring before the specified delimiter
+ */
+function substring_index(
+  input: string | null,
+  delimiter: string | null,
+  count: number | null
+) {
+  if (isNullOrUndefined(input) || isNullOrUndefined(delimiter)) {
+    return null;
+  }
+
+  // If count is null, we assume it's a positive number
+  if (isNullOrUndefined(count)) {
+    count = 1;
+  }
+
+  // Find the nth occurence of the delimiter using indexOf
+  let current = input.indexOf(delimiter);
+  let i = 0;
+  while (current !== -1 && i < Math.abs(count)) {
+    i++;
+    current = input.indexOf(delimiter, current + delimiter.length);
+  }
+  if (current === -1) {
+    return null;
+  }
+
+  return input.substring(0, current);
+}
+
+/**
  * reverse implementation, which reverses a string.
  *
  * @param input Input string to reverse
@@ -209,6 +248,38 @@ function reverse(input: string | null) {
 
   // Unicode safe reverse
   return Array.from(input).reverse().join('');
+}
+
+type StddevState = {
+  m: number;
+  s: number;
+  k: number;
+};
+
+function stddev(): AggergateUdfDefinition<number, StddevState, number | null> {
+  return {
+    start: () => ({
+      m: 0,
+      s: 0,
+      k: 0,
+    }),
+    step: (acc, next: number) => {
+      if (isNullOrUndefined(next)) {
+        return acc;
+      }
+      const m = acc.m;
+      acc.m += (next - m) / (acc.k + 1);
+      acc.s += (next - m) * (next - acc.m);
+      acc.k++;
+      return acc;
+    },
+    result: acc => {
+      if (acc.k < 3) {
+        return null;
+      }
+      return Math.sqrt(acc.s / (acc.k - 1));
+    },
+  };
 }
 
 type SetAggState = {
@@ -272,7 +343,7 @@ function makeDistinctAgg<T = number>(result: (state: DistinctAggState) => T) {
       sum: 0,
       count: 0,
     }),
-    step: (acc, key, value) => {
+    step: (acc: DistinctAggState, key, value) => {
       if (isNullOrUndefined(key) || isNullOrUndefined(value)) {
         return acc;
       }
@@ -293,7 +364,7 @@ function makeDistinctAgg<T = number>(result: (state: DistinctAggState) => T) {
 
       return acc;
     },
-    inverse: (acc, key, value) => {
+    inverse: (acc: DistinctAggState, key, value) => {
       if (isNullOrUndefined(key) || isNullOrUndefined(value)) {
         return acc;
       }

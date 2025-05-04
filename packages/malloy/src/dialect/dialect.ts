@@ -42,11 +42,12 @@ import type {DialectFunctionOverloadDef} from './functions';
 
 type DialectFieldTypes = string | 'struct';
 
-interface DialectField {
+export interface DialectField {
   type: DialectFieldTypes;
   sqlExpression: string;
   rawName: string;
   sqlOutputName: string;
+  origin?: string;
 }
 
 export interface DialectFieldTypeStruct extends DialectField {

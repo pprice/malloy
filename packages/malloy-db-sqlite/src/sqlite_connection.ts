@@ -9,6 +9,7 @@ import {
   sqlKey,
   type FieldDef,
   SqliteDialect,
+  QueryValue,
 } from '@malloydata/malloy';
 
 import SqliteDatabase, {type ColumnDefinition} from 'better-sqlite3';
@@ -23,6 +24,10 @@ type PragmaTableInfo = {
   notnull: number;
   dflt_value: string | null;
   pk: number;
+};
+
+type RawMalloyQueryData = MalloyQueryData & {
+  cols: ColumnDefinition[];
 };
 
 interface SqliteConnectionOptions {
@@ -89,15 +94,60 @@ export class SqliteConnection extends BaseConnection {
     return undefined;
   }
 
-  runSQL(
+  async runSQL(
     sql: string,
-    _options?: RunSQLOptions | undefined
+    _options: RunSQLOptions = {}
   ): Promise<MalloyQueryData> {
-    return this.runRawSQL(sql, _options).catch(e => {
+    const res = await this.runRawSQL(sql, _options).catch(e => {
       this.verboseLog(() => ['Error running SQL', sql, 'Error', e]);
       this.dumpDatabaseState();
       throw e;
     });
+
+    // Scan the result for any json objects :-(
+    for (const row of res.rows) {
+      for (const col of Object.keys(row)) {
+        if (typeof row[col] === 'string') {
+          row[col] = this.destringify(row[col]) as QueryValue;
+        }
+      }
+    }
+
+    return res;
+  }
+
+  private isLikelyJson(value: string): boolean {
+    return (
+      !!value &&
+      ((value.startsWith('{') && value.endsWith('}')) ||
+        (value.startsWith('[') && value.endsWith(']')))
+    );
+  }
+
+  private destringify<T>(value: T): T {
+    // If the value is a string, try to parse it as JSON
+    // if the value is an object, we need to check each property
+    // and attempt to destringify it
+    // This makes me sad
+    if (typeof value === 'string' && this.isLikelyJson(value)) {
+      try {
+        return this.destringify(JSON.parse(value));
+      } catch (e) {
+        return value;
+      }
+    } else if (typeof value === 'object' && value) {
+      // Check if the value is an array
+      if (Array.isArray(value)) {
+        return value.map(v => this.destringify(v)) as T;
+      }
+
+      // Check if actual object
+      for (const key of Object.keys(value)) {
+        value[key] = this.destringify(value[key]);
+      }
+    }
+
+    return value;
   }
 
   private dumpDatabaseState(): void {
@@ -111,11 +161,15 @@ export class SqliteConnection extends BaseConnection {
 
     const tables = databases.map(db => {
       return this.db
-        .prepare<unknown[], {name: string}>(
-          `SELECT name FROM ${db.name}.sqlite_master WHERE type='table'`
+        .prepare<unknown[], {fb: string[]; db: string; name: string}>(
+          `SELECT '${db.name}' as db, name FROM ${db.name}.sqlite_master WHERE type='table'`
         )
         .all()
-        .map(row => row['name']);
+        .map(row => ({
+          fn: row.db + '.' + row.name,
+          db: row.db,
+          name: row.name,
+        }));
     });
 
     // Verbose log the db state
@@ -123,23 +177,27 @@ export class SqliteConnection extends BaseConnection {
       'Databases:\n',
       ...databases.map(db => db.name),
       'Tables:\n',
-      tables,
+      tables.map(db => db.map(t => t.fn)),
     ]);
   }
 
   private async runRawSQL(
     sql: string,
-    _options?: RunSQLOptions | undefined
-  ): Promise<MalloyQueryData> {
+    _options: RunSQLOptions = {}
+  ): Promise<RawMalloyQueryData> {
     // First generic param is args, second is return type
-    // First generic param is args, second is return type
+
+    // This will throw if the sql is invalid
     const statement = this.db.prepare<unknown[], QueryDataRow>(sql);
+
+    const cols = statement.columns();
     const rows = statement.all();
 
-    this.verboseLog(() => sql);
+    this.verboseLog(() => [sql, cols, rows]);
 
-    const result: MalloyQueryData = {
+    const result: RawMalloyQueryData = {
       rows: rows,
+      cols,
       totalRows: rows.length,
     };
 
@@ -147,6 +205,7 @@ export class SqliteConnection extends BaseConnection {
   }
 
   public executeSQL(sql: string): void {
+    // This is for testing purposes only
     const statement = this.db.prepare(sql);
     statement.run();
   }

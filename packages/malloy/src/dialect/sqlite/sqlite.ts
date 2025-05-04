@@ -1,3 +1,4 @@
+import {values} from 'lodash';
 import type {
   TimeLiteralNode,
   Expr,
@@ -16,11 +17,15 @@ import type {
   TypecastExpr,
 } from '../../model';
 import {TD} from '../../model';
-import type {DialectFieldList, FieldReferenceType, QueryInfo} from '../dialect';
+import type {
+  DialectFieldList,
+  DialectField,
+  FieldReferenceType,
+  QueryInfo,
+} from '../dialect';
 import {Dialect, qtz} from '../dialect';
 import type {DialectFunctionOverloadDef} from '../functions';
 import {expandBlueprintMap, expandOverrideMap} from '../functions';
-import {StandardSQLDialect} from '../standardsql/standardsql';
 import {SQLITE_DIALECT_FUNCTIONS} from './dialect_functions';
 import {SQLITE_MALLOY_STANDARD_OVERLOADS} from './function_overrides';
 
@@ -109,21 +114,21 @@ export class SqliteDialect extends Dialect {
   defaultDecimalType = 'REAL';
   udfPrefix = 'UDF_';
   hasFinalStage = false;
-  divisionIsInteger = false;
+  divisionIsInteger = true; // 50/100 = 0, 50/100.0 = 0.5
   supportsSumDistinctFunction = true;
   unnestWithNumbers = false;
   defaultSampling = {enable: false};
-  supportsAggDistinct = false; // TODO
+  supportsAggDistinct = true; // TODO
   supportsCTEinCoorelatedSubQueries = false; // TODO
   dontUnionIndex = false; // TODO
   supportsQualify = true; // TODO
   supportsNesting = true; // TODO
   cantPartitionWindowFunctionsOnExpressions = false;
   hasModOperator = true;
-  nestedArrays = false; // TODO
+  nestedArrays = true; // TODO
   supportsHyperLogLog = false;
-  likeEscape = false;
-  supportUnnestArrayAgg = false; // TODO
+  likeEscape = true; // Escape is supported for like via LIKE '^%' ESCAPE '^'
+  supportUnnestArrayAgg = true; // TODO
   supportsSafeCast = false; // TODO
 
   experimental = false; // Remove later, but quiet for now.
@@ -222,7 +227,7 @@ export class SqliteDialect extends Dialect {
   }
 
   sqlAnyValue(_groupSet: number, fieldName: string): string {
-    return `MAX(${fieldName})`;
+    return Builder.func('MAX', fieldName);
   }
 
   sqlRegexpMatch(match: RegexMatchExpr): string {
@@ -302,10 +307,58 @@ export class SqliteDialect extends Dialect {
     orderBy: string | undefined,
     limit: number | undefined
   ): string {
-    throw new Error('Method not implemented.');
+    // We take advantage of json_each to get ordering and limiting
+    // within json_group_array, we build the turtle, then project
+    // it back to rows, then group it again.
+    //
+    // NOTE: This feels like its relying on undefined behavior,
+    // technically the ORDER BY should not work within the grouping
+    // aggregate, but it does. :melting-face:
+
+    const subSelectAlias = '_j_turtle_' + groupSet;
+
+    // json_each(json_group_array(json_object(...))) as sub_select
+    // Gives a table expression
+    let jsonObjectProject = Builder.jsonObject(
+      ...this.mapFieldsForJsonObject(fieldList, false, f => f.rawName)
+    );
+
+    // If we have an order by we need to apply it to the jsonObjectProject
+    // so we get JSON_GROUP_ARRAY(JSON_OBJECT(...) ORDERED BY X DESC)
+    if (orderBy) {
+      jsonObjectProject += ` ${orderBy}`;
+    }
+    // Note: we are applying an aggregate filter here to limit to the group set
+    const tableExpr = Builder.func(
+      'JSON_EACH',
+      Builder.exprs(
+        Builder.func('JSON_GROUP_ARRAY', jsonObjectProject),
+        Builder.aggFilter(Builder.eq('group_set', groupSet))
+      )
+    );
+
+    // Now we are going to select from the table expression, and re-aggregate
+    // json_each value back into an array (!), if there is a limit we can
+    // can use key (from json_each) to limit the number of rows;
+
+    const select = Builder.exprs(
+      'SELECT',
+      Builder.func('JSON_GROUP_ARRAY', `${subSelectAlias}.value`),
+      'FROM',
+      Builder.named(tableExpr, subSelectAlias),
+      typeof limit === 'number'
+        ? Builder.where(Builder.binOp('<', `${subSelectAlias}.key`, limit)) // 0 indexed, so lt
+        : undefined
+    );
+
+    return Builder.groupExpr(select);
   }
+
   sqlAnyValueTurtle(groupSet: number, fieldList: DialectFieldList): string {
-    throw new Error('Method not implemented.');
+    return Builder.if(
+      Builder.eq('group_set', groupSet),
+      Builder.jsonObject(...this.mapFieldsForJsonObject(fieldList))
+    );
   }
 
   sqlAnyValueLastTurtle(
@@ -313,13 +366,32 @@ export class SqliteDialect extends Dialect {
     groupSet: number,
     sqlName: string
   ): string {
-    throw new Error('Method not implemented.');
+    const expr = Builder.anyValue(
+      Builder.if(
+        Builder.and(Builder.eq('group_set', groupSet), Builder.notNull(name)),
+        name
+      )
+    );
+
+    return Builder.named(expr, sqlName);
   }
+
   sqlCoaleseMeasuresInline(
     groupSet: number,
     fieldList: DialectFieldList
   ): string {
-    throw new Error('Method not implemented.');
+    const fields = this.mapFieldsForJsonObject(fieldList);
+    const nullValues = this.mapFieldsForJsonObject(fieldList, true);
+
+    return Builder.coalesce(
+      Builder.anyValue(
+        Builder.if(
+          Builder.eq('group_set', groupSet),
+          Builder.jsonObject(...fields)
+        )
+      ),
+      Builder.jsonObject(...nullValues)
+    );
   }
 
   sqlUnnestAlias(
@@ -330,7 +402,58 @@ export class SqliteDialect extends Dialect {
     isArray: boolean,
     isInNestedPipeline: boolean
   ): string {
-    throw new Error('Method not implemented.');
+    // Given a turtle (e.g. a bloc of json) we need to unnest it
+    const jsonTable = this.jsonTable(source, fieldList, isArray);
+
+    return Builder.exprs(
+      'CROSS JOIN',
+      Builder.named(jsonTable, alias),
+      'ON TRUE'
+    );
+  }
+
+  malloyToSQL(t: string) {
+    if (t === 'number') {
+      return 'DOUBLE';
+    } else if (t === 'string') {
+      return 'TEXT';
+    } else if (t === 'struct' || t === 'array' || t === 'record') {
+      return 'TEXT';
+    } else return t;
+  }
+
+  jsonTable(source: string, fieldList: DialectFieldList, isArray: boolean) {
+    // If we have an array, we are selecting the json values within the array
+    if (isArray) {
+      return Builder.groupExpr(
+        'SELECT',
+        Builder.list(
+          Builder.named('key', '__row_id'),
+          Builder.named(Builder.jsonPath('value', '$'), 'value')
+        ),
+        'FROM',
+        Builder.func('JSON_EACH', source)
+      );
+    }
+
+    // If we have a record, we are selecting the json values within the record
+
+    const fields = fieldList.map(f =>
+      Builder.named(
+        Builder.cast(
+          Builder.jsonPath('value', `$.${f.rawName}`),
+          this.malloyToSQL(f.type)
+        ),
+        f.sqlOutputName
+      )
+    );
+
+    return Builder.groupExpr(
+      'SELECT',
+      Builder.list(Builder.named('key', '__row_id'), ...fields),
+      'FROM',
+      Builder.func('JSON_EACH', source)
+    );
   }
 
   sqlSumDistinctHashedKey(sqlDistinctKey: string): string {
@@ -366,12 +489,13 @@ export class SqliteDialect extends Dialect {
   ): string {
     throw new Error('Method not implemented.');
   }
+
   sqlCreateTableAsSelect(tableName: string, sql: string): string {
     throw new Error('Method not implemented.');
   }
 
   castToString(expression: string): string {
-    return `CAST(${expression} as TEXT)`;
+    return Builder.cast(expression, 'TEXT');
   }
 
   concat(...values: string[]): string {
@@ -407,19 +531,15 @@ export class SqliteDialect extends Dialect {
   }
 
   sqlLiteralArray(lit: ArrayLiteralNode): string {
-    return this.jsonFunc(
-      'ARRAY',
-      lit.kids.values.map(v => v.sql)
-    );
+    return Builder.func('JSON_ARRAY', ...lit.kids.values.map(v => v.sql));
   }
 
   sqlLiteralRecord(lit: RecordLiteralNode): string {
-    return this.jsonFunc(
-      'OBJECT',
-      Object.entries(lit.kids).map(([key, value]) => {
-        return `${this.sqlLiteralString(key)}, ${value.sql}`;
-      })
-    );
+    const tuples = Object.entries(lit.kids).map(([key, value]) => {
+      return [key, value.sql] as [BuilderExpr, BuilderExpr];
+    });
+
+    return Builder.jsonObject(...tuples);
   }
 
   validateTypeName(sqlType: string): boolean {
@@ -435,5 +555,133 @@ export class SqliteDialect extends Dialect {
     return index === -1
       ? {table: str}
       : {db: str.slice(0, index), table: str.slice(index + 1)};
+  }
+
+  private mapFields(fieldList: DialectFieldList): string {
+    return Builder.list(
+      ...fieldList.flatMap(f => [
+        Builder.stringLiteral(f.rawName),
+        f.sqlExpression,
+      ])
+    );
+  }
+
+  private mapFieldsForJsonObject(
+    fieldList: DialectFieldList,
+    nullValues?: boolean,
+    fieldSelector: (f: DialectField) => string = f => f.sqlOutputName
+  ): [BuilderExpr, BuilderExpr][] {
+    return fieldList.map(f => [
+      Builder.stringLiteral(fieldSelector(f)),
+      nullValues ? Builder.NULL : f.sqlExpression,
+    ]);
+  }
+}
+
+type ExprValue = string | number | boolean | null | undefined;
+type BuilderExpr = ExprValue | (() => ExprValue);
+
+class Builder {
+  public static readonly NULL = 'NULL';
+  public static readonly TRUE = 'TRUE';
+  public static readonly FALSE = 'FALSE';
+  public static readonly EMPTY_STRING_LITERAL = "''";
+
+  public static expr(expr: BuilderExpr): string {
+    if (typeof expr === 'function') {
+      return Builder.expr(expr());
+    } else if (typeof expr === 'undefined') {
+      return '';
+    } else if (expr === null) {
+      return Builder.NULL;
+    }
+
+    return expr.toString();
+  }
+
+  public static exprs(...exprs: BuilderExpr[]): string {
+    return exprs.map(Builder.expr).join('\n');
+  }
+
+  public static stringLiteral(expr: BuilderExpr): string {
+    const noVirgule = Builder.expr(expr).replace(/\\/g, '\\\\');
+    return "'" + noVirgule.replace(/'/g, "\\'") + "'";
+  }
+
+  public static list(...args: BuilderExpr[]): string {
+    return args.map(Builder.expr).join(', ');
+  }
+
+  public static func(name: BuilderExpr, ...args: BuilderExpr[]): string {
+    return `${Builder.expr(name)}(${Builder.list(...args)})`;
+  }
+
+  public static coalesce(...args: BuilderExpr[]): string {
+    return Builder.func('COALESCE', ...args);
+  }
+
+  public static groupExpr(...args: BuilderExpr[]): string {
+    return `(${Builder.exprs(...args)})`;
+  }
+
+  public static cast(expr: BuilderExpr, type: string) {
+    return `CAST(${Builder.expr(expr)} AS ${type})`;
+  }
+
+  public static jsonObject(...args: [BuilderExpr, BuilderExpr][]): string {
+    return this.func('JSON_OBJECT', ...args.flatMap(kv => kv));
+  }
+
+  public static and(...expr): string {
+    return expr.map(Builder.expr).join(' AND ');
+  }
+
+  public static or(...expr): string {
+    return expr.map(Builder.expr).join(' OR ');
+  }
+
+  public static eq(left: BuilderExpr, right: BuilderExpr): string {
+    return Builder.binOp('=', left, right);
+  }
+
+  public static notNull(expr: BuilderExpr): string {
+    return `${Builder.expr(expr)} IS NOT NULL`;
+  }
+
+  public static binOp(op: string, left: BuilderExpr, right: BuilderExpr) {
+    return `${Builder.expr(left)} ${op} ${Builder.expr(right)}`;
+  }
+
+  public static anyValue(expr: BuilderExpr): string {
+    return Builder.func('MAX', expr);
+  }
+
+  public static named(expr: BuilderExpr, name: string): string {
+    return `${Builder.expr(expr)} AS ${name}`;
+  }
+
+  public static jsonPath(expr: BuilderExpr, path: string): string {
+    return `${Builder.expr(expr)} ->> '${path}'`;
+  }
+
+  public static aggFilter(expr: BuilderExpr) {
+    return `FILTER (${Builder.where(expr)})`;
+  }
+
+  public static where(expr: BuilderExpr) {
+    return `WHERE ${Builder.expr(expr)}`;
+  }
+
+  public static if(
+    condition: BuilderExpr,
+    trueValue: BuilderExpr,
+    falseValue?: BuilderExpr
+  ): string {
+    return Builder.func(
+      'IIF',
+      Builder.expr(condition),
+      Builder.expr(trueValue),
+      falseValue ? Builder.expr(falseValue) : Builder.NULL
+    );
   }
 }

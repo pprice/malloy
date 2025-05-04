@@ -228,6 +228,13 @@ class StageWriter {
     }
   }
 
+  currentStage(): string {
+    if (this.withs.length === 0) {
+      throw new Error('No SQL generated');
+    }
+    return this.getName(this.withs.length - 1);
+  }
+
   addStage(sql: string): string {
     if (this.useCTE) {
       this.withs.push(sql);
@@ -3711,6 +3718,7 @@ class QueryQuery extends QueryField {
 
     for (const [name, field] of resultStruct.allFields) {
       const sqlName = this.parent.dialect.sqlMaybeQuoteIdentifier(name);
+      const origin = this.stageWriter
       //
       if (
         resultStruct.firstSegment.type === 'reduce' &&
